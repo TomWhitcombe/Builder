@@ -93,11 +93,8 @@ typedef struct ZedJSONOptions {
 bool	Builder_GenerateZedJSONFiles( BuilderOptions *options, ZedJSONOptions *zedOptions );
 
 
-#ifdef BUILDER_ZED_IMPLEMENTATION
-
-#if !defined( BUILDER_IMPLEMENTATION )
-#error "BUILDER_ZED_IMPLEMENTATION requires BUILDER_IMPLEMENTATION to also be defined, and \"builder.h\" to be included before \"builder_zed.h\", in this translation unit."
-#endif
+// matches builder.h - compiled in unless BUILDER_NO_IMPLEMENTATION says otherwise
+#ifndef BUILDER_NO_IMPLEMENTATION
 
 bool Builder_GenerateZedJSONFiles( BuilderOptions *options, ZedJSONOptions *zedOptions ) {
 	BUILDER_ASSERT( options );
@@ -330,7 +327,7 @@ bool Builder_GenerateZedJSONFiles( BuilderOptions *options, ZedJSONOptions *zedO
 	return true;
 }
 
-#endif // BUILDER_ZED_IMPLEMENTATION
+#endif // BUILDER_NO_IMPLEMENTATION
 
 #ifdef __cplusplus
 }

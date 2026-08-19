@@ -1,29 +1,20 @@
-#define BUILDER_IMPLEMENTATION
-#define BUILDER_VS_CODE_IMPLEMENTATION
 #include "../../builder.h"
 #include "../../builder_vs_code.h"
 
-int main( int argc, char **argv ) {
-	Builder_RebuildSelf( argc, argv );
-
-	BuilderOptions options = {
-		.argc = argc,
-		.argv = argv,
-	};
-
-	BuildConfig *config = CreateBuildConfig( &options, "config", BINARY_TYPE_EXE );
+void BuildScript( BuilderOptions *options ) {
+	BuildConfig *config = CreateBuildConfig( options, "config", BINARY_TYPE_EXE );
 	SetBinaryName( config, "test_generate_vs_code_json" );
 	AddSourceFiles( config, "main.c" );
 
-	if ( HasCommandLineArg( &options, "--release" ) ) {
+	if ( HasCommandLineArg( options, "--release" ) ) {
 		SetBinaryFolder( config, "bin/release" );
 	} else {
 		SetBinaryFolder( config, "bin/debug" );
 	}
 
-	options.defaultConfig = config;
+	options->defaultConfig = config;
 
-	if ( HasCommandLineArg( &options, "--vscode" ) ) {
+	if ( HasCommandLineArg( options, "--vscode" ) ) {
 		VSCodeCppPropertiesConfig cppPropertiesConfigs[] = {
 			{ .config = config, .intelliSenseMode = VSCODE_INTELLISENSE_MODE_LINUX_CLANG_X64 },
 		};
@@ -53,8 +44,7 @@ int main( int argc, char **argv ) {
 			.launchConfigsCount			= BUILDER_COUNT_OF( launchConfigs ),
 		};
 
-		return Builder_GenerateVSCodeJSONFiles( &options, &vsCodeOptions ) ? 0 : 1;
+		// generating the JSON is instead of building, not as well as, and Builder owns main() - so bail out here
+		exit( Builder_GenerateVSCodeJSONFiles( options, &vsCodeOptions ) ? 0 : 1 );
 	}
-
-	return Build( &options );
 }

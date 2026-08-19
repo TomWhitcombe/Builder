@@ -1,18 +1,10 @@
-#define BUILDER_IMPLEMENTATION
 #include "../../builder.h"
 
 #define BINARY_NAME		"SDL"
 #define BINARY_FOLDER	"bin/demos/SDL3"
 
-int main( int argc, char **argv ) {
-	BuilderOptions options = {
-		.argc = argc,
-		.argv = argv,
-	};
-
-	Builder_RebuildSelf(argc,argv);
-
-	BuildConfig *sdl = CreateBuildConfig( &options, "sdl", BINARY_TYPE_DYNAMIC_LIBRARY );
+void BuildScript( BuilderOptions *options ) {
+	BuildConfig *sdl = CreateBuildConfig( options, "sdl", BINARY_TYPE_DYNAMIC_LIBRARY );
 	SetBinaryName( sdl, BINARY_NAME );
 	SetBinaryFolder( sdl, BINARY_FOLDER );
 
@@ -136,7 +128,7 @@ int main( int argc, char **argv ) {
 		"include/build_config"
 	);
 
-	BuildConfig *demo = CreateBuildConfig( &options, "demo", BINARY_TYPE_EXE );
+	BuildConfig *demo = CreateBuildConfig( options, "demo", BINARY_TYPE_EXE );
 	SetBinaryName( demo, "sdl-demo-app" );
 	SetBinaryFolder( demo, BINARY_FOLDER );
 	SetWarningsAsErrors( demo, true );
@@ -152,7 +144,5 @@ int main( int argc, char **argv ) {
 	AddLibs( demo, ":" BINARY_NAME ".so" );
 #endif
 
-	options.defaultConfig = demo;
-
-	return Build( &options );
+	options->defaultConfig = demo;
 }

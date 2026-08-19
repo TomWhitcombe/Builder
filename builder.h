@@ -186,10 +186,17 @@ void	SetWarningsAsErrors( BuildConfig *config, bool warningsAsErrors );
 void	SetPreBuildCallback( BuildConfig *config, void ( *callback )( BuildConfig *config ) );
 void	SetPostBuildCallback( BuildConfig *config, void ( *callback )( BuildConfig *config ) );
 
+// YOU WRITE THIS.  It's the whole of a build script: create your configs on options and fill them in, and Builder
+// takes care of the rest.  Builder provides main() itself - it rebuilds your build script if you've edited it, calls
+// this, and then builds whatever you registered.
+void	BuildScript( BuilderOptions *options );
+
 int		Build( BuilderOptions *options );
 
 
-#ifdef BUILDER_IMPLEMENTATION
+// The implementation is compiled in by default.  Define BUILDER_NO_IMPLEMENTATION before including this header if you
+// need the declarations without it - in a second translation unit of a multi-file build script, say.
+#ifndef BUILDER_NO_IMPLEMENTATION
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN 1
@@ -3199,7 +3206,22 @@ int Build( BuilderOptions *options ) {
 	return 0;
 }
 
-#endif // BUILDER_IMPLEMENTATION
+// Builder owns main() so that a build script is nothing but its BuildScript().
+// __BASE_FILE__ is the .c file the compiler was pointed at rather than this header, which is what makes the
+// rebuild-if-stale check watch your build script instead of watching builder.h.
+int main( int argc, char **argv ) {
+	Builder_RebuildSelfInternal( argc, argv, __BASE_FILE__ );
+
+	BuilderOptions options = {0};
+	options.argc = argc;
+	options.argv = argv;
+
+	BuildScript( &options );
+
+	return Build( &options );
+}
+
+#endif // BUILDER_NO_IMPLEMENTATION
 
 #pragma clang diagnostic pop
 

@@ -158,11 +158,8 @@ typedef struct VSCodeJSONOptions {
 bool	Builder_GenerateVSCodeJSONFiles( BuilderOptions *options, VSCodeJSONOptions *vsCodeOptions );
 
 
-#ifdef BUILDER_VS_CODE_IMPLEMENTATION
-
-#if !defined( BUILDER_IMPLEMENTATION )
-#error "BUILDER_VS_CODE_IMPLEMENTATION requires BUILDER_IMPLEMENTATION to also be defined, and \"builder.h\" to be included before \"builder_vs_code.h\", in this translation unit."
-#endif
+// matches builder.h - compiled in unless BUILDER_NO_IMPLEMENTATION says otherwise
+#ifndef BUILDER_NO_IMPLEMENTATION
 
 bool Builder_GenerateVSCodeJSONFiles( BuilderOptions *options, VSCodeJSONOptions *vsCodeOptions ) {
 	BUILDER_ASSERT( options );
@@ -586,7 +583,7 @@ bool Builder_GenerateVSCodeJSONFiles( BuilderOptions *options, VSCodeJSONOptions
 	return true;
 }
 
-#endif // BUILDER_VS_CODE_IMPLEMENTATION
+#endif // BUILDER_NO_IMPLEMENTATION
 
 #ifdef __cplusplus
 }

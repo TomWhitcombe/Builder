@@ -1,29 +1,20 @@
-#define BUILDER_IMPLEMENTATION
-#define BUILDER_ZED_IMPLEMENTATION
 #include "../../builder.h"
 #include "../../builder_zed.h"
 
-int main( int argc, char **argv ) {
-	Builder_RebuildSelf( argc, argv );
-
-	BuilderOptions options = {
-		.argc = argc,
-		.argv = argv,
-	};
-
-	BuildConfig *config = CreateBuildConfig( &options, "config", BINARY_TYPE_EXE );
+void BuildScript( BuilderOptions *options ) {
+	BuildConfig *config = CreateBuildConfig( options, "config", BINARY_TYPE_EXE );
 	SetBinaryName( config, "test_generate_zed_json" );
 	AddSourceFiles( config, "main.c" );
 
-	if ( HasCommandLineArg( &options, "--release" ) ) {
+	if ( HasCommandLineArg( options, "--release" ) ) {
 		SetBinaryFolder( config, "bin/release" );
 	} else {
 		SetBinaryFolder( config, "bin/debug" );
 	}
 
-	options.defaultConfig = config;
+	options->defaultConfig = config;
 
-	if ( HasCommandLineArg( &options, "--zed" ) ) {
+	if ( HasCommandLineArg( options, "--zed" ) ) {
 		ZedTaskConfig taskConfigs[] = {
 			{ .config = config },
 			{ .config = config, .args = (const char *[]) { "--release", NULL } },
@@ -51,8 +42,7 @@ int main( int argc, char **argv ) {
 			.debugConfigsCount	= BUILDER_COUNT_OF( debugConfigs ),
 		};
 
-		return Builder_GenerateZedJSONFiles( &options, &zedOptions ) ? 0 : 1;
+		// generating the JSON is instead of building, not as well as, and Builder owns main() - so bail out here
+		exit( Builder_GenerateZedJSONFiles( options, &zedOptions ) ? 0 : 1 );
 	}
-
-	return Build( &options );
 }
