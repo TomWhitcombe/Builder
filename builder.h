@@ -222,6 +222,12 @@ void	Builder_AddDependenciesInternal( BuildConfig *config, BuildConfig **depende
 int		Build( BuilderOptions *options, int argc, char **argv );
 
 
+// Deletes a file.  True if it deleted it, false if it couldn't - which includes the file never having been there, and
+// something else still holding it open.
+// Useful from OnPreBuild/OnPostBuild for clearing out intermediate files or whatever a previous build left behind.
+bool	Builder_DeleteFile( const char *path );
+
+
 #ifdef BUILDER_IMPLEMENTATION
 
 #ifdef _WIN32
@@ -716,6 +722,18 @@ static bool Builder_GetFileLastWriteTime( const char *path, uint64_t *outTime ) 
 	*outTime = (uint64_t) fileStat.st_mtime;
 
 	return true;
+#else
+#error Unrecognised platform.
+#endif
+}
+
+bool Builder_DeleteFile( const char *path ) {
+	BUILDER_ASSERT( path );
+
+#if defined( _WIN32 )
+	return DeleteFile( path ) != 0;
+#elif defined( __linux__ )
+	return unlink( path ) == 0;
 #else
 #error Unrecognised platform.
 #endif
@@ -1405,7 +1423,7 @@ static void Builder_RebuildSelfInternal( int argc, char **argv, const char *sour
 	// if the old binary was left around from the previous build, clean it up now
 	{
 		char *oldBackupPath = Builder_FormatString( scratch.arena, "%s.rebuild.old", binaryPath );
-		DeleteFile( oldBackupPath );
+		Builder_DeleteFile( oldBackupPath );
 	}
 #endif
 
@@ -1444,14 +1462,9 @@ static void Builder_RebuildSelfInternal( int argc, char **argv, const char *sour
 	if ( Builder_RunProcess( NULL, compileCmd, false, NULL ) != 0 ) {
 		Builder_Error( "failed to rebuild '%s'.\n", binaryPath );
 
-#if defined( _WIN32 )
-		DeleteFile( tempBinaryPath );
-#elif defined( __linux__ )
-		if ( unlink( tempBinaryPath ) == -1 ) {
-			int err = errno;
-			Builder_Error( "Failed to unlink binary: %s\n", strerror( err ) );
+		if ( !Builder_DeleteFile( tempBinaryPath ) ) {
+			Builder_Warning( "Failed to delete \"%s\".\n", tempBinaryPath );
 		}
-#endif
 
 		exit( 1 );
 	}
@@ -3961,13 +3974,7 @@ int Build( BuilderOptions *options, int argc, char **argv ) {
 							const char *staleBackupPath = Builder_GetBinaryBackupPath( buildScratch.arena, binaryPath, backupIndex );
 
 							// best effort - one still mapped just stays, and a later build gets it
-#if defined( _WIN32 )
-							DeleteFile( staleBackupPath );
-#elif defined( __linux__ )
-							unlink( staleBackupPath );
-#else
-#error Unrecognised platform.
-#endif
+							Builder_DeleteFile( staleBackupPath );
 						}
 					}
 
