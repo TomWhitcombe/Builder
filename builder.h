@@ -721,6 +721,19 @@ static bool Builder_GetFileLastWriteTime( const char *path, uint64_t *outTime ) 
 #endif
 }
 
+static bool Builder_MoveFileReplacing( const char *from, const char *to ) {
+	BUILDER_ASSERT( from );
+	BUILDER_ASSERT( to );
+
+#if defined( _WIN32 )
+	return MoveFileEx( from, to, MOVEFILE_REPLACE_EXISTING ) != 0;
+#elif defined( __linux__ )
+	return rename( from, to ) == 0;
+#else
+#error Unrecognised platform.
+#endif
+}
+
 static bool Builder_FolderExists( const char *path ) {
 #if defined( _WIN32 )
 	DWORD attributes = GetFileAttributesA( path );
@@ -1553,6 +1566,65 @@ static const char * Builder_GetBinaryPath( arena_t *arena, const BuildConfig *co
 	} else {
 		return Builder_FormatString( arena, "%s%s", config->binaryName, Builder_GetFileExtensionFromBinaryType( config->binaryType ) );
 	}
+}
+
+// what a binary gets renamed to when something has it open and we need its name back
+#define BUILDER_BACKUP_BINARY_SUFFIX	".old"
+
+// one live generation of a binary keeps hold of one of these until its process exits, so there has to be more than one
+#define BUILDER_MAX_BINARY_BACKUPS		5
+
+// slot 0 is plain "<binary>.old", which is all a single running generation ever needs
+static const char *Builder_GetBinaryBackupPath( arena_t *arena, const char *binaryPath, const uint32_t backupIndex ) {
+	if ( backupIndex == 0 ) {
+		return Builder_FormatString( arena, "%s%s", binaryPath, BUILDER_BACKUP_BINARY_SUFFIX );
+	}
+
+	return Builder_FormatString( arena, "%s%s.%u", binaryPath, BUILDER_BACKUP_BINARY_SUFFIX, backupIndex );
+}
+
+// if something has this binary open, move it out of the way so the linker can create the binary without failing.
+static bool Builder_MoveLockedBinaryAside( arena_t *arena, const char *binaryPath, const char **outBackupPath ) {
+	BUILDER_ASSERT( binaryPath );
+	BUILDER_ASSERT( outBackupPath );
+
+	*outBackupPath = NULL;
+
+#if defined( _WIN32 )
+	HANDLE handle = CreateFile( binaryPath, GENERIC_WRITE, 0, NULL, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, NULL );
+
+	if ( handle != INVALID_HANDLE_VALUE ) {
+		CloseHandle( handle );
+
+		return true;
+	}
+
+	// nothing there to be locked, so the linker gets a clear run at it
+	DWORD lastError = GetLastError();
+
+	if ( lastError == ERROR_FILE_NOT_FOUND || lastError == ERROR_PATH_NOT_FOUND ) {
+		return true;
+	}
+#elif defined( __linux__ )
+	return true;
+#else
+#error Unrecognised platform.
+#endif
+
+	// the first slot that will take it wins - one that refuses to be replaced still has a generation running out of it
+	for ( uint32_t backupIndex = 0; backupIndex < BUILDER_MAX_BINARY_BACKUPS; backupIndex++ ) {
+		const char *backupPath = Builder_GetBinaryBackupPath( arena, binaryPath, backupIndex );
+
+		if ( Builder_MoveFileReplacing( binaryPath, backupPath ) ) {
+			*outBackupPath = backupPath;
+
+			return true;
+		}
+	}
+
+	Builder_Error( "Something has \"%s\" open, and all %d of the names I move it aside to are in use as well - close whatever is still running out of them.\n", binaryPath, BUILDER_MAX_BINARY_BACKUPS );
+
+	return false;
 }
 
 static uint64_t Builder_AppendHash( const uint64_t inHash, const char *string ) {
@@ -3881,7 +3953,40 @@ int Build( BuilderOptions *options, int argc, char **argv ) {
 					const char *binaryPath = Builder_GetBinaryPath( buildScratch.arena, config );
 					// TODO: AK: 21/08/2026: We probably should just query if the file exists instead of using this function
 					uint64_t binaryFileWriteTime;
-					if ( needsCompilePacketCount > 0 || !Builder_GetFileLastWriteTime( binaryPath, &binaryFileWriteTime ) ) {
+					bool binaryExists = Builder_GetFileLastWriteTime( binaryPath, &binaryFileWriteTime );
+
+					// clears backups earlier runs left behind, but never without the binary - one could be the last copy
+					if ( binaryExists ) {
+						for ( uint32_t backupIndex = 0; backupIndex < BUILDER_MAX_BINARY_BACKUPS; backupIndex++ ) {
+							const char *staleBackupPath = Builder_GetBinaryBackupPath( buildScratch.arena, binaryPath, backupIndex );
+
+							// best effort - one still mapped just stays, and a later build gets it
+#if defined( _WIN32 )
+							DeleteFile( staleBackupPath );
+#elif defined( __linux__ )
+							unlink( staleBackupPath );
+#else
+#error Unrecognised platform.
+#endif
+						}
+					}
+
+					if ( needsCompilePacketCount > 0 || !binaryExists ) {
+						// the binary might be running, or loaded by something that is - rebuilding it shouldn't fail
+						// over that.  move it aside and link onto the name it just vacated
+						const char *movedBinaryBackupPath = NULL;
+
+						if ( !Builder_MoveLockedBinaryAside( buildScratch.arena, binaryPath, &movedBinaryBackupPath ) ) {
+							Builder_RewindScratch( &buildScratch );
+
+							return 1;
+						}
+
+						if ( movedBinaryBackupPath ) {
+							Builder_LogVerbose( options, "\"%s\" was open elsewhere, so it has been moved to \"%s\" and the linker gets the original name.\n", binaryPath, movedBinaryBackupPath );
+						}
+
+
 						stringBuilder_t linkerArgs = { 0 };
 #if defined( _WIN32 )
 						if ( config->binaryType == BINARY_TYPE_STATIC_LIBRARY ) {
@@ -4006,6 +4111,12 @@ int Build( BuilderOptions *options, int argc, char **argv ) {
 
 						if ( linkResult != 0 ) {
 							Builder_Error( "Link failed.\n" );
+
+							// put back what was there before - a failed build shouldn't cost you the binary you had
+							if ( movedBinaryBackupPath && !Builder_MoveFileReplacing( movedBinaryBackupPath, binaryPath ) ) {
+								Builder_Warning( "Failed to put \"%s\" back after a failed link.  It is still there, named \"%s\".\n", binaryPath, movedBinaryBackupPath );
+							}
+
 							Builder_RewindScratch( &buildScratch );
 							return 1;
 						}
